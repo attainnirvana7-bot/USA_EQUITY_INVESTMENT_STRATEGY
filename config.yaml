@@ -14,8 +14,23 @@ storage:
 crawl:
   # 股票池：sp500 / nasdaq100 / dowjones / list（使用下方 symbols）
   universe: list
-  # 免費方案並非所有代號都開放（實測 PG、HD 回 402），不支援的會在 log 列出並略過
-  symbols: [AAPL, MSFT, GOOGL, AMZN, META, NVDA, JPM, JNJ, XOM, KO, WMT, UNH, V]
+  # 美股大型股 40 檔，涵蓋各產業。
+  # 免費方案並非所有代號都開放（實測 PG、HD、AVGO、ORCL、CRM、QCOM、TXN 回 402，已移除）；
+  # 其他不開放的代號會自動記錄，30 天內不再嘗試。
+  # 額度估算（免費方案每日 250 次）：首次每檔約 6 次；之後每次排程每檔約 2 次（股價、市值），
+  # 財報每週更新一次時再加 3 次 → 40 檔每週最多約 200 次。要再加檔數，請先確認不會超過每日上限。
+  symbols: [
+    # 科技 / 通訊
+    AAPL, MSFT, GOOGL, AMZN, META, NVDA, ADBE, AMD, CSCO, INTC, NFLX, IBM,
+    # 金融
+    JPM, V, MA, BAC, GS, BRK-B,
+    # 醫療
+    JNJ, UNH, LLY, ABBV, MRK, TMO, ABT, PFE,
+    # 消費
+    KO, PEP, WMT, COST, MCD, NKE, DIS, TSLA,
+    # 能源 / 工業
+    XOM, CVX, CAT, HON, UNP, LIN,
+  ]
   # 財報期別：annual / quarter
   # 免費方案每種報表最多 5 期（程式會自動調降 limit）：年報 = 5 年，季報只有 5 季（僅夠算 2 期 TTM）
   # 所以免費方案建議 annual；付費方案可改 quarter + 40（≈ 10 年），財報更即時
@@ -25,7 +40,7 @@ crawl:
   benchmark: SPY
   # 快取有效期（小時），期間內不重抓
   ttl_hours:
-    statements: 168
+    statements: 144            # 6 天：每週六排程會重抓財報，週三那次沿用
     prices: 20
     profile: 720
 

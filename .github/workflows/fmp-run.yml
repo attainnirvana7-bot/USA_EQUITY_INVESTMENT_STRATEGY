@@ -3,6 +3,11 @@
 name: FMP 選股回測
 
 on:
+  # 每週三、六 08:17（台北時間）= 週三、六 00:17 UTC，避開整點排程尖峰。
+  # 週六：美股週五收盤後的完整一週；週三：週中更新股價。
+  # 一週兩次也讓 Actions 快取（7 天未使用會被清除）不會過期。
+  schedule:
+    - cron: "17 0 * * 3,6"
   workflow_dispatch:
     inputs:
       symbols:
@@ -26,6 +31,13 @@ on:
         description: "執行回測"
         type: boolean
         default: true
+      save_report:
+        description: "將結果 commit 到 reports/（排程執行一律會存）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
 
 concurrency:
   group: fmp-run
@@ -70,6 +82,8 @@ jobs:
           restore-keys: usequity-db-
 
       - name: 檢查 API 端點權限
+        # 排程執行略過，省下約 10 次請求額度
+        if: github.event_name != 'schedule'
         run: |
           python -m usequity.cli check-api | tee check.txt || true
           { echo "## API 端點權限"; echo '```'; cat check.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
@@ -106,13 +120,43 @@ jobs:
           exit $rc
 
       - name: 回測
-        if: ${{ !cancelled() && inputs.backtest }}
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.backtest) }}
         run: |
           set +e
           python -m usequity.cli backtest --output results/backtest 2>&1 | tee results/backtest.txt
           rc=${PIPESTATUS[0]}
           { echo "## 回測結果"; echo '```'; cat results/backtest.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
+
+      - name: 存成報告並 commit
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.save_report) }}
+        run: |
+          set +o pipefail   # 組報告時 grep 沒有符合的行不算失敗
+          day=$(TZ=Asia/Taipei date +%F)
+          dir="reports/${day:0:4}"
+          mkdir -p "$dir"
+          f="$dir/$day.md"
+          {
+            echo "# 選股回測報告 $day"
+            echo
+            echo "觸發方式：${{ github.event_name }}　執行紀錄：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "## 資料"; echo '```'; grep -v '^\[[0-9]*/' crawl.txt | grep -v 'WARNING' | tail -n 15; cat status.txt | head -n 3; echo '```'
+            echo "## 選股結果"; echo '```'; cat results/screen.txt 2>/dev/null || echo "（未產生）"; echo '```'
+            echo "## 回測結果"; echo '```'; cat results/backtest.txt 2>/dev/null || echo "（未產生）"; echo '```'
+            echo
+            echo "> 股票池為現今大型股，回測有倖存者偏差；結果僅供研究參考。"
+          } > "$f"
+          [ -f results/screen.csv ] && cp results/screen.csv "$dir/$day-screen.csv"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/
+          if git diff --cached --quiet; then echo "報告無變化"; exit 0; fi
+          git commit -m "report: $day"
+          for i in 1 2 3; do
+            git pull --rebase -q origin "${GITHUB_REF_NAME}" && git push -q origin "HEAD:${GITHUB_REF_NAME}" && break
+            sleep $((i * 5))
+          done
 
       - name: 上傳結果
         if: always()

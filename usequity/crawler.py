@@ -22,6 +22,8 @@ class CrawlReport:
     skipped: int = 0
     errors: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)   # 依方案限制自動調整的紀錄
+    unsupported: list[str] = field(default_factory=list)  # 方案不開放的代號
+    aborted: str = ""                                 # 中途停止的原因（金鑰錯誤、達每日上限）
     api_calls: int = 0
 
 
@@ -71,6 +73,10 @@ class Crawler:
         for i, sym in enumerate(todo, 1):
             if progress:
                 progress(i, len(todo), sym)
+            # 先前已確認方案不開放的代號：30 天內不再嘗試，省下額度
+            if not force and self.store.is_unsupported(sym):
+                rep.unsupported.append(sym)
+                continue
             is_bench_only = sym == bench and sym not in symbols
             for ds in datasets:
                 if is_bench_only and ds != "prices":
@@ -79,13 +85,21 @@ class Crawler:
                 try:
                     n = self._fetch(sym, ds, force)
                 except FMPError as e:
+                    if e.symbol_unsupported:
+                        log.warning("%s：目前方案不開放此代號，略過", sym)
+                        self.store.mark_unsupported(sym, str(e))
+                        rep.unsupported.append(sym)
+                        break
                     msg = f"{sym}/{ds}: {e}"
                     log.warning(msg)
                     rep.errors.append(msg)
                     self.store.log_fetch(sym, ds, "error", str(e))
-                    if e.status == 401:
-                        # 金鑰無效：後續請求必然全部失敗，直接中止
+                    if e.status == 401 or e.daily_limit:
+                        # 金鑰無效或已達每日上限：後續請求必然失敗，直接中止。
+                        # 已抓到的資料都有快取，下次執行會從未完成的部分接續。
+                        rep.aborted = "API 金鑰無效" if e.status == 401 else "已達方案每日請求上限"
                         rep.api_calls = self.client.calls - calls_before
+                        rep.notes = list(self._notes)
                         return rep
                     continue
                 if n is None:
