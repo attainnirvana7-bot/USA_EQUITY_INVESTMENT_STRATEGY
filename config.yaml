@@ -14,7 +14,8 @@ storage:
 crawl:
   # 股票池：sp500 / nasdaq100 / dowjones / list（使用下方 symbols）
   universe: list
-  symbols: [AAPL, MSFT, GOOGL, AMZN, META, NVDA, JPM, JNJ, XOM, PG, KO, WMT, HD, UNH, V]
+  # 免費方案並非所有代號都開放（實測 PG、HD 回 402），不支援的會在 log 列出並略過
+  symbols: [AAPL, MSFT, GOOGL, AMZN, META, NVDA, JPM, JNJ, XOM, KO, WMT, UNH, V]
   # 財報期別：annual / quarter
   # 免費方案每種報表最多 5 期（程式會自動調降 limit）：年報 = 5 年，季報只有 5 季（僅夠算 2 期 TTM）
   # 所以免費方案建議 annual；付費方案可改 quarter + 40（≈ 10 年），財報更即時
