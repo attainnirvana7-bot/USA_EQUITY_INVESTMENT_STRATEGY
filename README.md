@@ -55,7 +55,12 @@ GitHub Actions 每次排程執行後，會把程式碼 + 最新資料庫發布�
    - Repository：`attainnirvana7-bot/USA_EQUITY_INVESTMENT_STRATEGY`
    - Branch：`streamlit`
    - Main file path：`app.py`
-3. **Deploy**。之後在 app 的 **Settings → Sharing** 設定誰可以檢視
+3. 展開 **Advanced settings → Secrets**，填入 `APP_PASSWORD = "自訂密碼"`，再按 **Deploy**
+4. 之後在 app 的 **Settings → Sharing** 設定誰可以檢視
+
+Community Cloud 每個 workspace 只能有一個私人 app。額度已被占用時，可把這個 app 設為公開：
+repo 本身仍是私人的，而設定了 `APP_PASSWORD` 後，沒有密碼就看不到任何內容。
+沒設定 `APP_PASSWORD` 時不需登入（本機使用）。
 
 介面上的「資料爬取」頁在雲端也能用，但寫入的資料在 app 重啟後就會消失，
 而且會消耗同一份 API 額度，所以不建議在 Streamlit 設定 `FMP_API_KEY`；

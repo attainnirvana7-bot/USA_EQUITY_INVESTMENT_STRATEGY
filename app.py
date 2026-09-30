@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import hmac
 import os
 from pathlib import Path
 
@@ -20,6 +21,38 @@ from usequity.screener import FilterError, screen
 from usequity.storage import Store
 
 st.set_page_config(page_title="美股財報選股回測", page_icon="📈", layout="wide")
+
+
+
+def _app_password() -> str | None:
+    # Streamlit Cloud 的根層級 secrets 也會出現在環境變數；本機沒有 secrets.toml 時 st.secrets 會拋例外
+    pw = os.environ.get("APP_PASSWORD")
+    if not pw:
+        try:
+            pw = st.secrets.get("APP_PASSWORD")
+        except Exception:
+            pw = None
+    return pw or None
+
+
+def require_password() -> None:
+    """設定了 APP_PASSWORD 時，需先輸入密碼才顯示內容（公開部署時保護資料）。"""
+    expected = _app_password()
+    if not expected or st.session_state.get("authed"):
+        return
+    st.title("📈 美股選股回測")
+    with st.form("login"):
+        pw = st.text_input("密碼", type="password")
+        ok = st.form_submit_button("進入")
+    if ok and hmac.compare_digest(pw.encode(), expected.encode()):
+        st.session_state["authed"] = True
+        st.rerun()
+    if ok:
+        st.error("密碼錯誤")
+    st.stop()
+
+
+require_password()
 
 CFG = load_config(os.environ.get("USEQUITY_CONFIG"))
 st.session_state.setdefault("db_path", CFG["storage"]["db_path"])
