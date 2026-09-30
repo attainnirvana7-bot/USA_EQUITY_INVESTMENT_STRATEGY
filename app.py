@@ -24,15 +24,19 @@ st.set_page_config(page_title="美股財報選股回測", page_icon="📈", layo
 
 
 
-def _app_password() -> str | None:
+def _secret(name: str) -> str | None:
     # Streamlit Cloud 的根層級 secrets 也會出現在環境變數；本機沒有 secrets.toml 時 st.secrets 會拋例外
-    pw = os.environ.get("APP_PASSWORD")
-    if not pw:
+    val = os.environ.get(name)
+    if not val:
         try:
-            pw = st.secrets.get("APP_PASSWORD")
+            val = st.secrets.get(name)
         except Exception:
-            pw = None
-    return pw or None
+            val = None
+    return val or None
+
+
+def _app_password() -> str | None:
+    return _secret("APP_PASSWORD")
 
 
 def require_password() -> None:
@@ -55,6 +59,38 @@ def require_password() -> None:
 require_password()
 
 CFG = load_config(os.environ.get("USEQUITY_CONFIG"))
+
+
+def ensure_decrypted_db(path: str) -> str | None:
+    """公開分支上只有加密檔 usequity.db.enc；尚未解密過這個版本時以 DB_KEY 解密。回傳錯誤訊息或 None。
+
+    以旁邊的 .stamp 記錄已解密的加密檔版本（大小 + 修改時間），不能只比明文檔的修改時間：
+    未設定金鑰時介面仍會建立空的資料庫檔，之後設好金鑰也會被誤判為「已是最新」。
+    """
+    db = Path(path)
+    enc = db.with_name(db.name + ".enc")
+    if not enc.exists():
+        return None
+    st_ = enc.stat()
+    stamp = db.with_name(db.name + ".stamp")
+    sig = f"{st_.st_size}:{st_.st_mtime_ns}"
+    if db.exists() and stamp.exists() and stamp.read_text() == sig:
+        return None
+    key = _secret("DB_KEY")
+    if not key:
+        return "資料庫已加密，請在 Streamlit 的 Settings → Secrets 設定 DB_KEY（與 GitHub Secrets 相同）"
+    from usequity.crypto import KeyError_, decrypt_file
+    try:
+        decrypt_file(enc, db, key)
+    except KeyError_ as e:
+        return str(e)
+    stamp.write_text(sig)
+    return None
+
+
+_db_error = ensure_decrypted_db(CFG["storage"]["db_path"])
+if _db_error:
+    st.error(_db_error)
 st.session_state.setdefault("db_path", CFG["storage"]["db_path"])
 
 
