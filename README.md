@@ -28,7 +28,8 @@ streamlit run app.py                 # 網頁介面
 ## 在 GitHub Actions 上執行
 
 1. **Settings → Secrets and variables → Actions → New repository secret**，
-   Name 填 `FMP_API_KEY`，Secret 貼上金鑰
+   新增 `FMP_API_KEY`（FMP 金鑰）與 `DB_KEY`（自訂的長密語，用來加密發布到 streamlit 分支的資料庫；
+   未設定時只發布程式碼、不含資料）
 2. **Actions → FMP 選股回測 → Run workflow**，可指定代號、財報期別、資料集
 3. 執行完在該次 run 的 **Summary** 看 API 權限、選股與回測結果；
    頁面底部 **Artifacts** 可下載 CSV 與資料庫
@@ -45,8 +46,10 @@ streamlit run app.py                 # 網頁介面
 
 ## 部署到 Streamlit Community Cloud
 
-GitHub Actions 每次排程執行後，會把程式碼 + 最新資料庫發布到 `streamlit` 分支
-（單一 commit 強制覆寫，資料庫不會在歷史中累積）；main 的程式碼更新時，
+GitHub Actions 每次排程執行後，會把程式碼 + **加密後**的資料庫（`data/usequity.db.enc`）
+發布到 `streamlit` 分支（單一 commit 強制覆寫，不會在歷史中累積）。repo 是公開的，
+明文資料庫不會進入 git，也不會放進 Actions artifact；Streamlit 啟動時以 `DB_KEY` 解密。
+main 的程式碼更新時，
 「發布 Streamlit」workflow 也會以快取中的資料庫重新發布。Streamlit 部署這個分支，
 分支一更新就會自動重新部署。
 
@@ -55,7 +58,11 @@ GitHub Actions 每次排程執行後，會把程式碼 + 最新資料庫發布�
    - Repository：`attainnirvana7-bot/USA_EQUITY_INVESTMENT_STRATEGY`
    - Branch：`streamlit`
    - Main file path：`app.py`
-3. 展開 **Advanced settings → Secrets**，填入 `APP_PASSWORD = "自訂密碼"`，再按 **Deploy**
+3. 展開 **Advanced settings → Secrets**，填入以下兩行，再按 **Deploy**：
+   ```toml
+   APP_PASSWORD = "介面登入密碼"
+   DB_KEY = "資料庫解密密語（至少 16 字元，需與 GitHub Secrets 的 DB_KEY 相同）"
+   ```
 4. 之後在 app 的 **Settings → Sharing** 設定誰可以檢視
 
 Community Cloud 每個 workspace 只能有一個私人 app。額度已被占用時，可把這個 app 設為公開：

@@ -161,6 +161,8 @@ jobs:
       - name: 發布到 streamlit 分支
         # 只從 main 發布，避免測試分支的資料蓋掉線上介面
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+        env:
+          DB_KEY: ${{ secrets.DB_KEY }}
         run: scripts/publish_streamlit.sh
 
       - name: 上傳結果
@@ -168,8 +170,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: results-${{ github.run_number }}
-          path: |
-            results/
-            data/usequity.db
+          # repo 公開時 artifact 可被任何登入者下載，因此不含資料庫
+          path: results/
           if-no-files-found: ignore
           retention-days: 30

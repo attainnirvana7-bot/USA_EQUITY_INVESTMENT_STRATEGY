@@ -6,3 +6,4 @@ __pycache__/
 data/*.db
 data/*.db-*
 !data/.gitkeep
+data/*.stamp

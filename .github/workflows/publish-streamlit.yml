@@ -21,6 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安裝套件
+        run: pip install cryptography
+
       - name: 還原資料庫
         uses: actions/cache/restore@v4
         with:
@@ -29,4 +37,6 @@ jobs:
           restore-keys: usequity-db-
 
       - name: 發布到 streamlit 分支
+        env:
+          DB_KEY: ${{ secrets.DB_KEY }}
         run: scripts/publish_streamlit.sh
