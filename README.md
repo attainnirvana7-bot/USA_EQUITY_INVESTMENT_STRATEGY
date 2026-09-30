@@ -43,6 +43,24 @@ streamlit run app.py                 # 網頁介面
 達每日上限時爬蟲會停止，已抓的資料都在快取中，下次執行會接續。
 `workflow_dispatch` 只在 workflow 檔位於預設分支（main）時才會出現在 Actions 頁面。
 
+## 部署到 Streamlit Community Cloud
+
+GitHub Actions 每次排程執行後，會把程式碼 + 最新資料庫發布到 `streamlit` 分支
+（單一 commit 強制覆寫，資料庫不會在歷史中累積）；main 的程式碼更新時，
+「發布 Streamlit」workflow 也會以快取中的資料庫重新發布。Streamlit 部署這個分支，
+分支一更新就會自動重新部署。
+
+1. 到 https://share.streamlit.io 用 GitHub 登入，授權存取私人 repo
+2. **Create app → Deploy a public app from GitHub**（repo 為私人時 app 預設也是私人）
+   - Repository：`attainnirvana7-bot/USA_EQUITY_INVESTMENT_STRATEGY`
+   - Branch：`streamlit`
+   - Main file path：`app.py`
+3. **Deploy**。之後在 app 的 **Settings → Sharing** 設定誰可以檢視
+
+介面上的「資料爬取」頁在雲端也能用，但寫入的資料在 app 重啟後就會消失，
+而且會消耗同一份 API 額度，所以不建議在 Streamlit 設定 `FMP_API_KEY`；
+資料更新交給 GitHub Actions 排程即可。
+
 ## 使用的 FMP 端點
 
 | 用途 | 端點（皆在 `/stable/` 下） |
@@ -115,7 +133,8 @@ FMP 有時以 HTTP 200 回傳 `{"Error Message": ...}`，同樣視為錯誤。�
 
 ```
 config.yaml            股票池、選股條件、回測參數
-.github/workflows/     GitHub Actions 手動執行 workflow
+.github/workflows/     GitHub Actions：選股回測（排程 / 手動）、發布 Streamlit
+scripts/               發布 streamlit 分支的腳本
 app.py                 Streamlit 介面
 usequity/
   fmp/client.py        FMP API 用戶端（節流、重試、錯誤處理）

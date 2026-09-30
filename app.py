@@ -324,6 +324,10 @@ with st.sidebar:
     with st.expander("示範資料（免金鑰）"):
         st.caption("產生 40 檔虛構公司 + SPY 的合成資料，寫入 data/demo.db 並切換過去。")
         st.button("產生並切換", on_click=load_demo)
+    if Path(db_path()).exists():
+        s = Store(db_path()).summary()
+        if s["price_range"][1]:
+            st.caption(f"資料至 {s['price_range'][1]}　共 {s['symbols']} 檔")
     st.caption("資料來源：[Financial Modeling Prep](https://site.financialmodelingprep.com/developer/docs)")
 
 {"資料爬取": page_data, "選股": page_screen, "回測": page_backtest}[page]()
