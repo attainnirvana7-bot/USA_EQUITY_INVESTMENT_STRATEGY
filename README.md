@@ -1,1 +1,125 @@
 # USA_EQUITY_INVESTMENT_STRATEGY
+
+美股財報資料爬蟲、多因子選股與回測工具，資料來源為
+[Financial Modeling Prep（FMP）stable API](https://site.financialmodelingprep.com/developer/docs)。
+
+- **爬蟲**：三大財報（季／年）、還原股價、歷史市值、公司資料 → 本機 SQLite，有快取有效期、節流、重試
+- **選股**：點時因子（估值、獲利、體質、成長、動能）+ 硬性篩選 + 加權百分位排名
+- **回測**：月／季／年再平衡、等權或分數加權、交易成本、對比 SPY 基準
+- **介面**：Streamlit 網頁（`app.py`）與命令列（`python -m usequity.cli`）
+
+## 快速開始
+
+```bash
+pip install -r requirements.txt
+export FMP_API_KEY=你的金鑰          # https://site.financialmodelingprep.com/developer/docs
+
+python -m usequity.cli check-api     # 先確認方案支援哪些端點
+python -m usequity.cli crawl         # 依 config.yaml 抓取
+python -m usequity.cli screen        # 最新選股結果
+python -m usequity.cli backtest      # 回測
+
+streamlit run app.py                 # 網頁介面
+```
+
+沒有金鑰也可以先試用：`python -m usequity.cli --db data/demo.db demo` 產生合成資料
+（40 檔虛構公司 + SPY），或在網頁側欄按「產生並切換」。
+
+## 在 GitHub Actions 上執行
+
+1. **Settings → Secrets and variables → Actions → New repository secret**，
+   Name 填 `FMP_API_KEY`，Secret 貼上金鑰
+2. **Actions → FMP 選股回測 → Run workflow**，可指定代號、財報期別、資料集
+3. 執行完在該次 run 的 **Summary** 看 API 權限、選股與回測結果；
+   頁面底部 **Artifacts** 可下載 CSV 與資料庫
+
+資料庫以 Actions 快取跨次累積，快取有效期內的資料不會重抓。
+`workflow_dispatch` 只在 workflow 檔位於預設分支（main）時才會出現在 Actions 頁面。
+
+## 使用的 FMP 端點
+
+| 用途 | 端點（皆在 `/stable/` 下） |
+|---|---|
+| 損益表 | `income-statement?symbol=&period=quarter\|annual&limit=` |
+| 資產負債表 | `balance-sheet-statement` |
+| 現金流量表 | `cash-flow-statement` |
+| 還原股價 | `historical-price-eod/dividend-adjusted?symbol=&from=` |
+| 歷史市值 | `historical-market-capitalization?symbol=&from=` |
+| 公司資料（產業別） | `profile?symbol=` |
+| 成分股 | `sp500-constituent` / `nasdaq-constituent` / `dowjones-constituent` |
+
+免費方案每日約 250 次請求，且季報、成分股等可能需付費方案；`check-api` 會逐一列出。
+一檔股票完整抓取約 6 次請求（公司資料 1、財報 3、股價 1、市值 1），S&P 500 全抓約 3,000 次。
+沒權限的資料集可用 `--datasets profile,statements,prices` 跳過，市值會改以「價格 × 稀釋股數」估算。
+
+## 可用因子
+
+| 欄位 | 說明 |
+|---|---|
+| `market_cap`, `price` | 市值、收盤價 |
+| `pe`, `earnings_yield`, `pb`, `ps`, `ev_ebitda`, `fcf_yield` | 估值（以近四季 TTM 計） |
+| `roe`, `roa`, `gross_margin`, `operating_margin`, `net_margin` | 獲利能力 |
+| `debt_to_equity`, `current_ratio` | 財務體質 |
+| `revenue_growth`, `eps_growth` | 近四季 vs 前四季年增率 |
+| `momentum_12_1`, `return_1m`, `volatility_1y` | 價格因子 |
+| `sector`, `industry`, `name` | 文字欄位，可用 `==` / `!=`，以 `\|` 分隔多值 |
+| `fundamental_age_days` | 所用財報距基準日天數 |
+
+篩選條件格式為「欄位 運算子 值」，例如：
+
+```yaml
+filters:
+  - "market_cap > 10e9"
+  - "roe > 0.15"
+  - 'sector != "Energy|Utilities"'
+rank:                 # 正值越大越好、負值越小越好
+  earnings_yield: 1
+  momentum_12_1: 1
+  volatility_1y: -0.5
+```
+
+條件是自行解析的，不經 `eval`，網頁輸入不會被當成程式碼執行。
+
+## 重要設計
+
+**點時資料，避免前視偏差。** 每筆財報以 `filingDate`（SEC 申報日）作為可用日，
+缺值時以報告期結束日 + `filing_lag_days`（預設 45 天）估計；三張報表都公開後才採用。
+超過 400 天沒有新財報的公司會被排除。
+
+**季資料轉 TTM。** 損益與現金流量加總近四季（四季跨度超過約 10 個月即視為缺季，不計算），
+資產負債取最新一季。同一檔同時有季與年資料時優先用季資料。
+
+**股價每次抓完整區間。** 還原股價在每次配息後整段歷史都會被修正，增量接上會在接縫處產生假報酬。
+
+**永久性錯誤不重試。** 400/401/402/403/404 直接記錄；401（金鑰錯誤）會中止整批抓取。
+FMP 有時以 HTTP 200 回傳 `{"Error Message": ...}`，同樣視為錯誤。單一代號、單一資料集失敗
+不影響其他項目，下次執行只會重抓失敗或過期的部分。
+
+## 回測的已知限制
+
+- **倖存者偏差**：股票池是現在的成分股，已下市或被剔除的公司不在其中，歷史績效會偏樂觀。
+- 以再平衡日收盤價成交，未計滑價與流動性。
+- 產業別是現況，不是點時資料。
+- 結果僅供研究參考，不構成投資建議。
+
+## 結構
+
+```
+config.yaml            股票池、選股條件、回測參數
+.github/workflows/     GitHub Actions 手動執行 workflow
+app.py                 Streamlit 介面
+usequity/
+  fmp/client.py        FMP API 用戶端（節流、重試、錯誤處理）
+  storage.py           SQLite 存取
+  crawler.py           爬蟲（快取有效期、錯誤隔離）
+  factors.py           點時因子計算
+  screener.py          篩選與排名
+  backtest.py          回測引擎與績效指標
+  cli.py               命令列
+  demo.py              合成示範資料
+tests/                 pytest（不需網路與金鑰）
+```
+
+```bash
+python -m pytest -q
+```
