@@ -102,6 +102,10 @@ def cmd_crawl(cfg, args) -> int:
     print(f"\n完成：寫入 {rep.fetched}，略過（快取有效）{rep.skipped}，API 請求 {rep.api_calls} 次")
     for n in rep.notes:
         print(f"  ℹ {n}")
+    if rep.unsupported:
+        print(f"  ℹ 方案不開放、已略過 {len(rep.unsupported)} 檔：{', '.join(rep.unsupported)}")
+    if rep.aborted:
+        print(f"  ⛔ 中途停止：{rep.aborted}。已抓的資料已存檔，下次執行會接續未完成的部分")
     for e in rep.errors[:20]:
         print(f"  ⚠ {e}")
     if len(rep.errors) > 20:
@@ -114,9 +118,10 @@ def cmd_status(cfg, args) -> int:
     s = store.summary()
     print(f"資料庫：{store.path}")
     print(f"  代號數 {s['symbols']}，財報列數 {s['statement_rows']}，股價列數 {s['price_rows']}")
-    print(f"  股價區間 {s['price_range'][0]} ~ {s['price_range'][1]}，抓取錯誤 {s['errors']} 筆")
+    print(f"  股價區間 {s['price_range'][0]} ~ {s['price_range'][1]}，抓取錯誤 {s['errors']} 筆，"
+          f"方案不開放代號 {s['unsupported']} 檔")
     errs = store.fetch_log()
-    errs = errs[errs["status"] != "ok"]
+    errs = errs[errs["status"] == "error"]
     if not errs.empty:
         print(errs.head(20).to_string(index=False))
     return 0

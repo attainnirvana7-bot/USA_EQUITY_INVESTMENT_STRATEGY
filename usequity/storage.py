@@ -133,6 +133,20 @@ class Store:
             return False
         return _utcnow() - datetime.fromisoformat(row[0]) < timedelta(hours=ttl_hours)
 
+    def mark_unsupported(self, symbol: str, message: str) -> None:
+        """記錄方案不開放的代號，並清掉它先前的錯誤紀錄（原因已明確，不必重複列出）。"""
+        with self._conn() as c:
+            c.execute("DELETE FROM fetch_log WHERE symbol=? AND status='error'", (symbol,))
+        self.log_fetch(symbol, "_symbol", "unsupported", message)
+
+    def is_unsupported(self, symbol: str, days: float = 30) -> bool:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT fetched_at FROM fetch_log WHERE symbol=? AND dataset='_symbol' AND status='unsupported'",
+                (symbol,),
+            ).fetchone()
+        return bool(row) and _utcnow() - datetime.fromisoformat(row[0]) < timedelta(days=days)
+
     def last_price_date(self, symbol: str) -> str | None:
         with self._conn() as c:
             row = c.execute("SELECT MAX(date) FROM prices WHERE symbol=?", (symbol,)).fetchone()
@@ -212,5 +226,7 @@ class Store:
                 "statement_rows": c.execute("SELECT COUNT(*) FROM statements").fetchone()[0],
                 "price_rows": c.execute("SELECT COUNT(*) FROM prices").fetchone()[0],
                 "price_range": c.execute("SELECT MIN(date), MAX(date) FROM prices").fetchone(),
-                "errors": c.execute("SELECT COUNT(*) FROM fetch_log WHERE status!='ok'").fetchone()[0],
+                "errors": c.execute("SELECT COUNT(*) FROM fetch_log WHERE status='error'").fetchone()[0],
+                "unsupported": c.execute(
+                    "SELECT COUNT(*) FROM fetch_log WHERE status='unsupported'").fetchone()[0],
             }

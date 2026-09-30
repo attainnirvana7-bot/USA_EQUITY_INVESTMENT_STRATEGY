@@ -26,6 +26,16 @@ class FMPError(RuntimeError):
         self.status = status
         self.endpoint = endpoint
 
+    @property
+    def daily_limit(self) -> bool:
+        """已達方案每日請求上限（FMP 回「Limit Reach」）：當天再試都沒用。"""
+        return "limit reach" in str(self).lower()
+
+    @property
+    def symbol_unsupported(self) -> bool:
+        """方案不開放這個代號（「This value set for 'symbol' is not available」）。"""
+        return self.status == 402 and "'symbol'" in str(self)
+
 
 class RateLimiter:
     """滑動視窗節流：60 秒內最多 N 次請求。"""
@@ -104,6 +114,8 @@ class FMPClient:
                     resp.status_code,
                     endpoint,
                 )
+            if resp.status_code == 429 and "limit reach" in resp.text.lower():
+                raise FMPError(f"{endpoint} HTTP 429: {_error_text(resp)}", 429, endpoint)
             if resp.status_code in RETRY_STATUSES:
                 last_err = FMPError(f"HTTP {resp.status_code}", resp.status_code, endpoint)
                 retry_after = resp.headers.get("Retry-After")

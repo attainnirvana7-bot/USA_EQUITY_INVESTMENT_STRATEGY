@@ -144,3 +144,48 @@ def test_crawler_adapts_to_plan_limits(store):
     assert len(rep.notes) == 2
     # 偵測到限制後，第二檔不再撞 402：AAA 財報 1 次失敗 + 3 次成功、市值 2 次；BBB 財報 3 次、市值 1 次
     assert fc.calls == 2 + 4 + 2 + 2 + 3 + 1
+
+
+def test_daily_limit_not_retried():
+    r = resp(429, {"Error Message": "Limit Reach . Please upgrade your plan"})
+    r.text = '{"Error Message": "Limit Reach . Please upgrade your plan"}'
+    c, s = make_client(r, resp(200, []))
+    with pytest.raises(FMPError) as e:
+        c.profile("AAPL")
+    assert e.value.daily_limit and s.get.call_count == 1
+
+
+SYMBOL_402 = ("HTTP 402: Premium Query Parameter: 'Special Endpoint : This value set for 'symbol' "
+              "is not available under your current subscription")
+
+
+def test_unsupported_symbol_skipped_next_time(store):
+    fc = FakeClient(fail={("statements", "PG"): 402})
+
+    def hit(name, sym):
+        fc.calls += 1
+        if (name, sym) in fc.fail:
+            raise FMPError(SYMBOL_402, 402)
+    fc._hit = hit
+    cr = Crawler(fc, store, {})
+    rep = cr.run(["AAA", "PG"])
+    # PG：profile 成功、財報 402 → 標記不開放並跳過其餘資料集，不算錯誤
+    assert rep.unsupported == ["PG"] and rep.errors == []
+    assert store.last_price_date("PG") is None
+    assert store.summary()["unsupported"] == 1
+    calls = fc.calls
+    rep2 = Crawler(fc, store, {}).run(["AAA", "PG"], force=False)
+    assert rep2.unsupported == ["PG"]
+    assert fc.calls == calls  # AAA 快取有效、PG 直接略過：0 次請求
+
+
+def test_daily_limit_aborts_crawl(store):
+    fc = FakeClient(fail={("prices", "AAA"): 429})
+
+    def hit(name, sym):
+        fc.calls += 1
+        if (name, sym) in fc.fail:
+            raise FMPError("HTTP 429: Limit Reach . Please upgrade your plan", 429)
+    fc._hit = hit
+    rep = Crawler(fc, store, {}).run(["AAA", "BBB"])
+    assert rep.aborted and "BBB" not in store.symbols()
