@@ -112,3 +112,35 @@ def test_crawler_aborts_on_401(store):
 
 def test_resolve_universe_normalizes():
     assert resolve_universe(None, {"universe": "list", "symbols": ["aapl", "BRK.B", "AAPL"]}) == ["AAPL", "BRK-B"]
+
+
+class LimitedPlanClient(FakeClient):
+    """模擬免費方案：財報 limit 上限 5、市值不接受 from。"""
+
+    def income_statement(self, sym, period, limit):
+        self.calls += 1
+        if limit > 5:
+            raise FMPError("income-statement HTTP 402: Premium Query Parameter: 'Special Parameters : "
+                           "The values for 'limit' must be between 0 and 5 based on your current subscription.", 402)
+        return [{"date": f"{2025 - i}-12-31", "period": "FY", "filingDate": f"{2026 - i}-02-01", "revenue": 1}
+                for i in range(limit)]
+
+    balance_sheet = cash_flow = income_statement
+
+    def historical_market_cap(self, sym, start=None):
+        self.calls += 1
+        if start:
+            raise FMPError("HTTP 402: Premium Query Parameter: 'Special Endpoint : This value set for 'from' "
+                           "is not available under your current subscription", 402)
+        return [{"date": "2026-09-29", "marketCap": 100}]
+
+
+def test_crawler_adapts_to_plan_limits(store):
+    fc = LimitedPlanClient()
+    rep = Crawler(fc, store, {"statement_limit": 40, "period": "annual"}).run(["AAA", "BBB"])
+    assert rep.errors == []
+    assert len(store.statements("income", ["BBB"])) == 5
+    assert store.market_caps().shape == (1, 2)
+    assert len(rep.notes) == 2
+    # 偵測到限制後，第二檔不再撞 402：AAA 財報 1 次失敗 + 3 次成功、市值 2 次；BBB 財報 3 次、市值 1 次
+    assert fc.calls == 2 + 4 + 2 + 2 + 3 + 1

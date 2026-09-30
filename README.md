@@ -48,7 +48,9 @@ streamlit run app.py                 # 網頁介面
 | 公司資料（產業別） | `profile?symbol=` |
 | 成分股 | `sp500-constituent` / `nasdaq-constituent` / `dowjones-constituent` |
 
-免費方案每日約 250 次請求，且季報、成分股等可能需付費方案；`check-api` 會逐一列出。
+免費方案實測限制（2026-09）：每日約 250 次請求；財報每次最多 5 期；歷史市值不接受 `from`；
+成分股清單不開放。爬蟲偵測到前兩項會自動調整（財報降到 5 期、市值只抓近期），
+因此免費方案建議 `period: annual`（5 年年報，回測約可從 2021 年起）。`check-api` 會逐一列出。
 一檔股票完整抓取約 6 次請求（公司資料 1、財報 3、股價 1、市值 1），S&P 500 全抓約 3,000 次。
 沒權限的資料集可用 `--datasets profile,statements,prices` 跳過，市值會改以「價格 × 稀釋股數」估算。
 
