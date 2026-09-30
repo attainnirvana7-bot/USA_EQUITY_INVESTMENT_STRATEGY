@@ -78,7 +78,11 @@ def cmd_crawl(cfg, args) -> int:
     print(f"股票池 {len(symbols)} 檔，資料集：{', '.join(datasets)}")
 
     def progress(i, n, sym):
-        print(f"\r[{i}/{n}] {sym:8s}", end="", flush=True)
+        # 終端機覆寫同一行；GitHub Actions 等非終端環境逐行輸出，log 才讀得懂
+        if sys.stdout.isatty():
+            print(f"\r[{i}/{n}] {sym:8s}", end="", flush=True)
+        else:
+            print(f"[{i}/{n}] {sym}", flush=True)
 
     rep = Crawler(client, store, crawl_cfg).run(symbols, datasets, force=args.force, progress=progress)
     print(f"\n完成：寫入 {rep.fetched}，略過（快取有效）{rep.skipped}，API 請求 {rep.api_calls} 次")
@@ -135,8 +139,11 @@ def cmd_backtest(cfg, args) -> int:
     eng = _engine(cfg)
     bt = BacktestConfig.from_config(cfg, start=args.start, end=args.end, rebalance=args.rebalance,
                                     top_n=args.top, weighting=args.weighting, cost_bps=args.cost_bps)
-    res = run_backtest(eng, bt, progress=lambda i, n, d: print(f"\r再平衡 {i}/{n} {d.date()}", end="", flush=True))
-    print()
+    tty = sys.stdout.isatty()
+    res = run_backtest(eng, bt, progress=(lambda i, n, d: print(f"\r再平衡 {i}/{n} {d.date()}", end="", flush=True))
+                       if tty else None)
+    if tty:
+        print()
     for w in res.warnings:
         print(f"⚠ {w}")
     print(f"{'指標':16s}{'策略':>12s}{'基準':>12s}")

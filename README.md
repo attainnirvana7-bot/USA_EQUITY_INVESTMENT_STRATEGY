@@ -25,6 +25,17 @@ streamlit run app.py                 # 網頁介面
 沒有金鑰也可以先試用：`python -m usequity.cli --db data/demo.db demo` 產生合成資料
 （40 檔虛構公司 + SPY），或在網頁側欄按「產生並切換」。
 
+## 在 GitHub Actions 上執行
+
+1. **Settings → Secrets and variables → Actions → New repository secret**，
+   Name 填 `FMP_API_KEY`，Secret 貼上金鑰
+2. **Actions → FMP 選股回測 → Run workflow**，可指定代號、財報期別、資料集
+3. 執行完在該次 run 的 **Summary** 看 API 權限、選股與回測結果；
+   頁面底部 **Artifacts** 可下載 CSV 與資料庫
+
+資料庫以 Actions 快取跨次累積，快取有效期內的資料不會重抓。
+`workflow_dispatch` 只在 workflow 檔位於預設分支（main）時才會出現在 Actions 頁面。
+
 ## 使用的 FMP 端點
 
 | 用途 | 端點（皆在 `/stable/` 下） |
@@ -95,6 +106,7 @@ FMP 有時以 HTTP 200 回傳 `{"Error Message": ...}`，同樣視為錯誤。�
 
 ```
 config.yaml            股票池、選股條件、回測參數
+.github/workflows/     GitHub Actions 手動執行 workflow
 app.py                 Streamlit 介面
 usequity/
   fmp/client.py        FMP API 用戶端（節流、重試、錯誤處理）

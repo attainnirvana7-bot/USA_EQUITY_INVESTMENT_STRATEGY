@@ -1,0 +1,111 @@
+# 在 GitHub Actions 上執行：抓取 FMP 資料 → 選股 → 回測
+# 金鑰放在 Settings → Secrets and variables → Actions → Repository secrets，名稱 FMP_API_KEY
+name: FMP 選股回測
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "代號（逗號分隔，留空使用 config.yaml）"
+        required: false
+        default: ""
+      period:
+        description: "財報期別（免費方案若季報 ❌ 請選 annual）"
+        type: choice
+        options: [config, quarter, annual]
+        default: config
+      datasets:
+        description: "資料集（逗號分隔，留空為全部；市值端點不支援時填 profile,statements,prices）"
+        required: false
+        default: ""
+      force:
+        description: "忽略快取，全部重抓"
+        type: boolean
+        default: false
+      backtest:
+        description: "執行回測"
+        type: boolean
+        default: true
+
+concurrency:
+  group: fmp-run
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安裝套件
+        run: pip install -r requirements.txt
+
+      - name: 確認金鑰
+        run: |
+          if [ -z "$FMP_API_KEY" ]; then
+            echo "::error::找不到 FMP_API_KEY，請到 Settings → Secrets and variables → Actions 新增 Repository secret"
+            exit 1
+          fi
+
+      # 資料庫存在 Actions 快取中跨次累積，未過期的資料不會重抓（節省 API 額度）
+      - name: 還原資料庫
+        uses: actions/cache@v4
+        with:
+          path: data/usequity.db
+          key: usequity-db-${{ github.run_id }}
+          restore-keys: usequity-db-
+
+      - name: 檢查 API 端點權限
+        run: |
+          python -m usequity.cli check-api | tee check.txt || true
+          { echo "## API 端點權限"; echo '```'; cat check.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 抓取資料
+        # 輸入值經環境變數傳入，不直接嵌進指令，避免被當成 shell 語法
+        env:
+          IN_SYMBOLS: ${{ inputs.symbols }}
+          IN_PERIOD: ${{ inputs.period }}
+          IN_DATASETS: ${{ inputs.datasets }}
+          IN_FORCE: ${{ inputs.force }}
+        run: |
+          args=()
+          if [ -n "$IN_SYMBOLS" ]; then args+=(--symbols "$(echo "$IN_SYMBOLS" | tr -d ' ')"); fi
+          if [ -n "$IN_PERIOD" ] && [ "$IN_PERIOD" != "config" ]; then args+=(--period "$IN_PERIOD"); fi
+          if [ -n "$IN_DATASETS" ]; then args+=(--datasets "$(echo "$IN_DATASETS" | tr -d ' ')"); fi
+          if [ "$IN_FORCE" = "true" ]; then args+=(--force); fi
+          # 部分代號失敗（exit 2）不中斷後續選股
+          python -m usequity.cli crawl "${args[@]}" | tee crawl.txt || [ "${PIPESTATUS[0]}" = "2" ]
+          python -m usequity.cli status | tee status.txt
+          { echo "## 資料庫"; echo '```'; tail -n 25 crawl.txt; echo; cat status.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 選股
+        run: |
+          mkdir -p results
+          python -m usequity.cli screen --output results/screen.csv | tee results/screen.txt
+          { echo "## 選股結果"; echo '```'; cat results/screen.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 回測
+        if: ${{ inputs.backtest }}
+        run: |
+          python -m usequity.cli backtest --output results/backtest | tee results/backtest.txt
+          { echo "## 回測結果"; echo '```'; cat results/backtest.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 上傳結果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ github.run_number }}
+          path: |
+            results/
+            data/usequity.db
+          if-no-files-found: ignore
+          retention-days: 30
