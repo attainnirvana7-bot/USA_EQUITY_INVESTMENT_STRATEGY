@@ -40,15 +40,22 @@ def _client(cfg) -> FMPClient:
 def cmd_check_api(cfg, args) -> int:
     client = _client(cfg)
     sym = args.symbol
+    lim = int(cfg["crawl"]["statement_limit"])
+    start = cfg["crawl"]["price_start"]
     checks = [
         ("profile", lambda: client.profile(sym)),
         ("income-statement (annual)", lambda: client.income_statement(sym, "annual", 1)),
         ("income-statement (quarter)", lambda: client.income_statement(sym, "quarter", 1)),
         ("balance-sheet-statement", lambda: client.balance_sheet(sym, "annual", 1)),
         ("cash-flow-statement", lambda: client.cash_flow(sym, "annual", 1)),
-        ("historical-price-eod/dividend-adjusted", lambda: client.historical_prices(sym, start="2024-01-01")),
+        ("historical-price-eod/dividend-adjusted", lambda: client.historical_prices(sym, start=start)),
         ("historical-market-capitalization", lambda: client.historical_market_cap(sym, limit=5)),
         ("sp500-constituent", lambda: client.constituents("sp500")),
+    ]
+    # 以爬蟲實際使用的參數測試；受限時 crawl 會自動調整，這裡只是讓你知道方案上限
+    limited = [
+        (f"財報 limit={lim}", lambda: client.income_statement(sym, "annual", lim)),
+        (f"歷史市值 from={start}", lambda: client.historical_market_cap(sym, start=start)),
     ]
     ok = True
     for name, fn in checks:
@@ -59,7 +66,14 @@ def cmd_check_api(cfg, args) -> int:
         except FMPError as e:
             ok = False
             print(f"  ❌ {name:42s} {e}")
-    print("\n❌ 端點代表目前方案不支援或金鑰有誤；季報、成分股通常需付費方案。" if not ok else "\n全部可用。")
+    print("\n方案參數上限（受限時 crawl 會自動調降，不影響執行）：")
+    for name, fn in limited:
+        try:
+            data = fn()
+            print(f"  ✅ {name:42s} {len(data)} 筆")
+        except FMPError as e:
+            print(f"  ⚠ {name:42s} {str(e)[:160]}")
+    print("\n❌ 端點代表目前方案不支援或金鑰有誤。" if not ok else "\n端點全部可用。")
     return 0 if ok else 1
 
 
@@ -86,6 +100,8 @@ def cmd_crawl(cfg, args) -> int:
 
     rep = Crawler(client, store, crawl_cfg).run(symbols, datasets, force=args.force, progress=progress)
     print(f"\n完成：寫入 {rep.fetched}，略過（快取有效）{rep.skipped}，API 請求 {rep.api_calls} 次")
+    for n in rep.notes:
+        print(f"  ℹ {n}")
     for e in rep.errors[:20]:
         print(f"  ⚠ {e}")
     if len(rep.errors) > 20:

@@ -55,12 +55,22 @@ def test_costs_reduce_equity(store):
     assert r1.rebalances["cost"].iloc[0] == pytest.approx(0.005)
 
 
-def test_cash_when_nothing_passes(store):
+def test_nothing_passes_raises(store):
     seed(store)
     eng = FactorEngine(store, benchmark="SPY")
-    res = run_backtest(eng, BacktestConfig(start="2019-06-01", filters=["roe > 99"], benchmark="SPY"))
-    assert res.equity.iloc[-1] == pytest.approx(1.0)
-    assert res.warnings
+    with pytest.raises(ValueError):
+        run_backtest(eng, BacktestConfig(start="2019-06-01", filters=["roe > 99"], benchmark="SPY"))
+
+
+def test_leading_periods_without_data_skipped(store):
+    seed(store)
+    eng = FactorEngine(store, benchmark="SPY")
+    # 財報從 2018Q1 開始、TTM 需四季 → 2018 年底前無資料；起始日設更早
+    res = run_backtest(eng, BacktestConfig(start="2018-01-01", top_n=1, rank={"roe": 1}, benchmark="SPY"))
+    assert res.equity.index[0] > pd.Timestamp("2018-06-01")
+    assert res.equity.iloc[0] == pytest.approx(1 - 10 / 1e4)
+    assert any("實際起始" in w for w in res.warnings)
+    assert res.benchmark.index[0] == res.equity.index[0]
 
 
 def test_performance_metrics():

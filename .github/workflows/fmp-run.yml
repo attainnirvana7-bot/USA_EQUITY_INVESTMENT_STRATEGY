@@ -10,7 +10,7 @@ on:
         required: false
         default: ""
       period:
-        description: "財報期別（免費方案若季報 ❌ 請選 annual）"
+        description: "財報期別（免費方案每種報表最多 5 期，建議 annual）"
         type: choice
         options: [config, quarter, annual]
         default: config
@@ -30,6 +30,11 @@ on:
 concurrency:
   group: fmp-run
   cancel-in-progress: false
+
+defaults:
+  run:
+    # 明確指定 bash 才會啟用 pipefail，否則 `指令 | tee` 會吞掉指令的失敗
+    shell: bash
 
 jobs:
   run:
@@ -82,22 +87,32 @@ jobs:
           if [ -n "$IN_PERIOD" ] && [ "$IN_PERIOD" != "config" ]; then args+=(--period "$IN_PERIOD"); fi
           if [ -n "$IN_DATASETS" ]; then args+=(--datasets "$(echo "$IN_DATASETS" | tr -d ' ')"); fi
           if [ "$IN_FORCE" = "true" ]; then args+=(--force); fi
-          # 部分代號失敗（exit 2）不中斷後續選股
-          python -m usequity.cli crawl "${args[@]}" | tee crawl.txt || [ "${PIPESTATUS[0]}" = "2" ]
+          set +e
+          python -m usequity.cli crawl "${args[@]}" 2>&1 | tee crawl.txt
+          rc=${PIPESTATUS[0]}
           python -m usequity.cli status | tee status.txt
-          { echo "## 資料庫"; echo '```'; tail -n 25 crawl.txt; echo; cat status.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "## 資料庫"; echo '```'; grep -v '^\[[0-9]*/' crawl.txt | tail -n 30; echo; cat status.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # 部分代號失敗（exit 2）只警告，不中斷後續選股
+          if [ "$rc" = "2" ]; then echo "::warning::部分資料抓取失敗，詳見 Summary"; exit 0; fi
+          exit $rc
 
       - name: 選股
         run: |
           mkdir -p results
-          python -m usequity.cli screen --output results/screen.csv | tee results/screen.txt
+          set +e
+          python -m usequity.cli screen --output results/screen.csv 2>&1 | tee results/screen.txt
+          rc=${PIPESTATUS[0]}
           { echo "## 選股結果"; echo '```'; cat results/screen.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
 
       - name: 回測
-        if: ${{ inputs.backtest }}
+        if: ${{ !cancelled() && inputs.backtest }}
         run: |
-          python -m usequity.cli backtest --output results/backtest | tee results/backtest.txt
+          set +e
+          python -m usequity.cli backtest --output results/backtest 2>&1 | tee results/backtest.txt
+          rc=${PIPESTATUS[0]}
           { echo "## 回測結果"; echo '```'; cat results/backtest.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
 
       - name: 上傳結果
         if: always()

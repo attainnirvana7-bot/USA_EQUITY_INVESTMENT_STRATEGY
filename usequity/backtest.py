@@ -120,6 +120,8 @@ def run_backtest(engine: FactorEngine, cfg: BacktestConfig,
     value = 1.0
     cur_w = pd.Series(dtype=float)   # 目前（漂移後）權重
     empty_periods = 0
+    started = False       # 尚未有任何持股前的期間（財報資料還沒開始）直接略過，不計入績效
+    skipped_leading = 0
 
     for i, d in enumerate(dates):
         if progress:
@@ -139,6 +141,9 @@ def run_backtest(engine: FactorEngine, cfg: BacktestConfig,
                 for sym, w in target.items():
                     holdings_rows.append({"date": d, "symbol": sym, "weight": w,
                                           "score": sel.at[sym, "score"]})
+        if target.empty and not started:
+            skipped_leading += 1
+            continue
         if target.empty:
             empty_periods += 1
 
@@ -150,7 +155,8 @@ def run_backtest(engine: FactorEngine, cfg: BacktestConfig,
 
         # 持有期：(d, nxt]
         period = daily_ret.loc[d:nxt].iloc[1:]
-        if i == 0:
+        if not started:
+            started = True
             equity.loc[d] = value
         if target.empty:
             # 空手：持有現金（報酬 0）
@@ -168,7 +174,12 @@ def run_backtest(engine: FactorEngine, cfg: BacktestConfig,
         else:
             cur_w = target
 
+    if not started:
+        raise ValueError("整段期間沒有任何股票通過條件（或尚無可用財報），請放寬條件或確認資料")
     equity = equity.ffill().dropna()
+    if skipped_leading:
+        warnings.append(f"前 {skipped_leading} 期尚無可用財報或無股票通過條件，"
+                        f"回測實際起始於 {equity.index[0].date()}")
     if empty_periods:
         warnings.append(f"{empty_periods}/{len(dates)} 期沒有任何股票通過條件，該期持有現金")
 

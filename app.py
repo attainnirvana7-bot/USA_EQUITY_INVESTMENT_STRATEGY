@@ -149,6 +149,8 @@ def page_data():
             progress=lambda i, n, sym: bar.progress(i / n, text=f"[{i}/{n}] {sym}"))
         bar.empty()
         st.success(f"完成：寫入 {rep.fetched}，快取略過 {rep.skipped}，API 請求 {rep.api_calls} 次")
+        for n in rep.notes:
+            st.info(n)
         if rep.errors:
             with st.expander(f"⚠ {len(rep.errors)} 筆錯誤"):
                 st.code("\n".join(rep.errors))

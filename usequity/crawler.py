@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -20,6 +21,7 @@ class CrawlReport:
     fetched: dict[str, int] = field(default_factory=dict)
     skipped: int = 0
     errors: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)   # 依方案限制自動調整的紀錄
     api_calls: int = 0
 
 
@@ -47,6 +49,10 @@ class Crawler:
         self.store = store
         self.cfg = crawl_cfg
         self.ttl = crawl_cfg.get("ttl_hours", {})
+        # 方案限制在同一次執行中不會變，偵測到一次就套用到後續所有代號，避免每檔都撞一次 402
+        self.limit_cap: int | None = None
+        self.mcap_without_from = False
+        self._notes: list[str] = []
 
     def run(
         self,
@@ -88,7 +94,23 @@ class Crawler:
                     rep.fetched[ds] = rep.fetched.get(ds, 0) + n
                     self.store.log_fetch(sym, ds, "ok", f"{n} rows")
         rep.api_calls = self.client.calls - calls_before
+        rep.notes = list(self._notes)
         return rep
+
+    def _statements(self, fn, sym: str, period: str, limit: int) -> list[dict]:
+        if self.limit_cap is not None:
+            limit = min(limit, self.limit_cap)
+        try:
+            return fn(sym, period, limit)
+        except FMPError as e:
+            # 免費方案：「The values for 'limit' must be between 0 and 5」→ 降到上限重試
+            m = re.search(r"limit'? must be between 0 and (\d+)", str(e))
+            if e.status != 402 or not m or int(m.group(1)) >= limit:
+                raise
+            self.limit_cap = int(m.group(1))
+            self._notes.append(f"方案限制財報每次最多 {self.limit_cap} 期，已自動調降 limit")
+            log.info(self._notes[-1])
+            return fn(sym, period, self.limit_cap)
 
     def _fetch(self, sym: str, ds: str, force: bool) -> int | None:
         ttl_key = "prices" if ds == "marketcap" else ds
@@ -103,9 +125,10 @@ class Crawler:
             period = self.cfg.get("period", "quarter")
             limit = int(self.cfg.get("statement_limit", 40))
             n = 0
-            n += self.store.save_statements(sym, "income", self.client.income_statement(sym, period, limit))
-            n += self.store.save_statements(sym, "balance", self.client.balance_sheet(sym, period, limit))
-            n += self.store.save_statements(sym, "cashflow", self.client.cash_flow(sym, period, limit))
+            for kind, fn in (("income", self.client.income_statement),
+                             ("balance", self.client.balance_sheet),
+                             ("cashflow", self.client.cash_flow)):
+                n += self.store.save_statements(sym, kind, self._statements(fn, sym, period, limit))
             return n
         if ds == "prices":
             # 每次抓完整區間而非增量：還原股價在每次配息後整段歷史都會被修正，
@@ -113,6 +136,16 @@ class Crawler:
             start = self.cfg.get("price_start", "2014-01-01")
             return self.store.save_prices(sym, self.client.historical_prices(sym, start=start))
         if ds == "marketcap":
-            start = self.cfg.get("price_start", "2014-01-01")
-            return self.store.save_market_caps(sym, self.client.historical_market_cap(sym, start=start))
+            start = None if self.mcap_without_from else self.cfg.get("price_start", "2014-01-01")
+            try:
+                rows = self.client.historical_market_cap(sym, start=start)
+            except FMPError as e:
+                # 免費方案不接受 from 參數：改抓預設的近期區間，更早的市值由 價格 × 股數 估算
+                if e.status != 402 or start is None or "'from'" not in str(e):
+                    raise
+                self.mcap_without_from = True
+                self._notes.append("方案不支援歷史市值的起始日參數，只抓近期市值；更早期間以 價格 × 股數 估算")
+                log.info(self._notes[-1])
+                rows = self.client.historical_market_cap(sym)
+            return self.store.save_market_caps(sym, rows)
         raise ValueError(f"未知資料集：{ds}")
