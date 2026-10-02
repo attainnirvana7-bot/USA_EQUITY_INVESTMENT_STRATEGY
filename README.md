@@ -39,6 +39,11 @@ streamlit run app.py                 # 網頁介面
 **排程**：每週三、六 08:17（台北時間）自動執行，結果 commit 到 `reports/YYYY/YYYY-MM-DD.md`
 （附選股 CSV），累積成歷史紀錄。手動執行時勾選 `save_report` 也會存。
 
+主要觸發是 cron-job.org 呼叫 `workflow_dispatch`，body 為 `{"ref":"main","inputs":{"scheduled":"true"}}`
+（設定見 ops-hub 的 `CRON_JOBS.md`）；`scheduled=true` 的行為與排程完全相同（略過 API 權限檢查、一定回測、一定存報告）。
+GitHub 內建排程（週三、六 09:27）只當備援：`guard` job 發現 12 小時內已有成功的排程執行（run 標題帶「· 排程」）就略過，
+不會重複耗用 FMP 額度。手動執行（`scheduled` 預設 false）不受影響。
+
 **額度**：免費方案每日約 250 次請求。預設 40 檔在穩定後每次排程約 80–200 次
 （週六重抓財報）。方案不開放的代號會自動記錄、30 天內不再嘗試；
 達每日上限時爬蟲會停止，已抓的資料都在快取中，下次執行會接續。
