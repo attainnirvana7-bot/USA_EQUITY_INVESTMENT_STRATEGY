@@ -15,6 +15,7 @@ pip install -r requirements.txt
 export FMP_API_KEY=你的金鑰          # https://site.financialmodelingprep.com/developer/docs
 
 python -m usequity.cli check-api     # 先確認方案支援哪些端點
+python -m usequity.cli probe --symbols AAPL,PG   # 測試代號是否在方案內（每檔 1 次請求）
 python -m usequity.cli crawl         # 依 config.yaml 抓取
 python -m usequity.cli screen        # 最新選股結果
 python -m usequity.cli backtest      # 回測
