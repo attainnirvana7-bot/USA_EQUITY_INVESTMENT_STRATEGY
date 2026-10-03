@@ -36,7 +36,7 @@ streamlit run app.py                 # 網頁介面
 
 資料庫以 Actions 快取跨次累積，快取有效期內的資料不會重抓。
 
-**排程**：每週三、六 08:17（台北時間）自動執行，結果 commit 到 `reports/YYYY/YYYY-MM-DD.md`
+**排程**：每週三、六 08:17（台北時間）自動執行（11:47 備援：GitHub 排程偶爾會延遲或遺漏，當天已有報告就略過），結果 commit 到 `reports/YYYY/YYYY-MM-DD.md`
 （附選股 CSV），累積成歷史紀錄。手動執行時勾選 `save_report` 也會存。
 
 **額度**：免費方案每日約 250 次請求。預設 40 檔在穩定後每次排程約 80–200 次

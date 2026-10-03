@@ -6,8 +6,11 @@ on:
   # 每週三、六 08:17（台北時間）= 週三、六 00:17 UTC，避開整點排程尖峰。
   # 週六：美股週五收盤後的完整一週；週三：週中更新股價。
   # 一週兩次也讓 Actions 快取（7 天未使用會被清除）不會過期。
+  # GitHub 的排程事件在尖峰時可能延遲數小時甚至被丟棄（2026-10-03 主排程就沒有觸發），
+  # 所以 03:47 UTC（台北 11:47）再排一次備援：當天報告已存在就略過，不重複耗額度。
   schedule:
     - cron: "17 0 * * 3,6"
+    - cron: "47 3 * * 3,6"
   workflow_dispatch:
     inputs:
       symbols:
@@ -49,7 +52,26 @@ defaults:
     shell: bash
 
 jobs:
+  # 備援排程用：當天（台北時間）的報告已 commit 就不再執行
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          day=$(TZ=Asia/Taipei date +%F)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -f "reports/${day:0:4}/$day.md" ]; then
+            echo "今天（$day）的報告已存在，略過這次排程"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   run:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
